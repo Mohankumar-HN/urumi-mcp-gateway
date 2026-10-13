@@ -17,6 +17,7 @@ async def main():
             print("Tools exposed by the unified gateway:")
             for tool in result.tools:
                 print(f"- {tool.name}: {tool.description}")
+                print(f"  Input schema: {tool.input_schema}")
 
             print("\nCalling the Analytics tool through the gateway...")
             response = await session.call_tool(
