@@ -22,6 +22,10 @@ UPSTREAM_SERVERS = [
         name="analytics",
         url="http://127.0.0.1:8002/mcp",
     ),
+    UpstreamServer(
+        name="woocommerce",
+        url="http://127.0.0.1:8004/mcp",
+    ),
 ]
 
 # The gateway's public tool definitions and routing information.

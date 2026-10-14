@@ -17,7 +17,7 @@ async def main():
             print("Tools exposed by the unified gateway:")
             for tool in result.tools:
                 print(f"- {tool.name}: {tool.description}")
-                print(f"  Input schema: {tool.input_schema}")
+                # print(f"  Input schema: {tool.input_schema}")
 
             print("\nCalling the Analytics tool through the gateway...")
             response = await session.call_tool(
@@ -32,6 +32,20 @@ async def main():
                 {},
             )
             print(response)
+
+            
+            print("\nCalling WooCommerce product listing through the gateway...")
+            products = await session.call_tool(
+                "woocommerce__list_products",
+                {"per_page": 5},
+            )
+
+            for item in products.content:
+                if hasattr(item, "text"):
+                    print(item.text)
+
+            if products.is_error:
+                print("WooCommerce product listing failed.")
 
 
 if __name__ == "__main__":
