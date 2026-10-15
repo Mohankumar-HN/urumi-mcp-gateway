@@ -1,11 +1,15 @@
 
 import asyncio
 import time
+from backend.gateway.audit import record_audit
 
 import uvicorn
 from mcp import types
 from mcp.server import Server
+from sqlalchemy import select
 
+from backend.gateway.database import SessionLocal
+from backend.gateway.models import Upstream as UpstreamRecord
 from backend.gateway.upstream import (
     UpstreamServer,
     discover_tools,
@@ -13,62 +17,88 @@ from backend.gateway.upstream import (
 )
 
 
-UPSTREAM_SERVERS = [
-    UpstreamServer(
-        name="time",
-        url="http://127.0.0.1:8001/mcp",
-    ),
-    UpstreamServer(
-        name="analytics",
-        url="http://127.0.0.1:8002/mcp",
-    ),
-    UpstreamServer(
-        name="woocommerce",
-        url="http://127.0.0.1:8004/mcp",
-    ),
-]
-
-# The gateway's public tool definitions and routing information.
+# Public tool definitions and routing information.
 TOOL_DEFINITIONS: dict[str, types.Tool] = {}
 TOOL_ROUTES: dict[str, tuple[UpstreamServer, str]] = {}
 
+# Prevent simultaneous refreshes from overlapping.
+_refresh_lock = asyncio.Lock()
 
-async def register_upstream_tools():
-    """Discover upstream tools and preserve their original input schemas."""
 
-    for upstream in UPSTREAM_SERVERS:
-        try:
-            tools = await discover_tools(upstream)
-        except Exception as exc:
-            print(f"Could not discover {upstream.name}: {exc}")
-            continue
+def load_enabled_upstreams() -> list[UpstreamServer]:
+    """Load enabled upstream configurations from PostgreSQL."""
+    with SessionLocal() as db:
+        records = db.scalars(
+            select(UpstreamRecord)
+            .where(UpstreamRecord.enabled.is_(True))
+            .order_by(UpstreamRecord.name)
+        ).all()
 
-        for tool in tools:
-            original_name = tool["name"]
-            gateway_name = f"{upstream.name}__{original_name}"
+        return [
+            UpstreamServer(name=record.name, url=record.url)
+            for record in records
+        ]
 
-            # Preserve the input schema supplied by the upstream server.
-            definition = types.Tool(
-                name=gateway_name,
-                description=f"[{upstream.name}] {tool['description']}",
-                inputSchema=tool["input_schema"],
-            )
 
-            TOOL_DEFINITIONS[gateway_name] = definition
-            TOOL_ROUTES[gateway_name] = (upstream, original_name)
+async def refresh_upstream_tools():
+    """Refresh gateway tools using the enabled database configurations."""
+    async with _refresh_lock:
+        upstreams = await asyncio.to_thread(load_enabled_upstreams)
 
-            print(f"Registered: {gateway_name}")
+        new_definitions: dict[str, types.Tool] = {}
+        new_routes: dict[str, tuple[UpstreamServer, str]] = {}
+
+        for upstream in upstreams:
+            try:
+                tools = await asyncio.wait_for(
+                    discover_tools(upstream),
+                    timeout=10,
+                )
+            except Exception as exc:
+                print(
+                    f"Could not discover {upstream.name}: "
+                    f"{type(exc).__name__}: {exc}"
+                )
+                continue
+
+            for tool in tools:
+                original_name = tool["name"]
+                gateway_name = f"{upstream.name}__{original_name}"
+
+                # Keep names unique across different upstream servers.
+                if gateway_name in new_definitions:
+                    print(f"Duplicate gateway tool ignored: {gateway_name}")
+                    continue
+
+                new_definitions[gateway_name] = types.Tool(
+                    name=gateway_name,
+                    description=f"[{upstream.name}] {tool['description']}",
+                    inputSchema=tool["input_schema"],
+                )
+                new_routes[gateway_name] = (upstream, original_name)
+
+                print(f"Registered: {gateway_name}")
+
+        # Publish the new registry only after the discovery pass completes.
+        TOOL_DEFINITIONS.clear()
+        TOOL_DEFINITIONS.update(new_definitions)
+        TOOL_ROUTES.clear()
+        TOOL_ROUTES.update(new_routes)
+
+        print(
+            f"Tool registry refreshed: "
+            f"{len(TOOL_DEFINITIONS)} tools from enabled upstreams."
+        )
 
 
 def get_tool_input_schema(tool_name: str):
-    """Return the schema used to validate a gateway tool's arguments."""
-
     definition = TOOL_DEFINITIONS.get(tool_name)
     return definition.inputSchema if definition else None
 
 
 async def list_tools_handler(context, params):
-    """Return the tools currently exposed by the gateway."""
+    """Refresh configurations before listing tools."""
+    await refresh_upstream_tools()
 
     return types.ListToolsResult(
         tools=list(TOOL_DEFINITIONS.values())
@@ -77,19 +107,26 @@ async def list_tools_handler(context, params):
 
 
 async def call_tool_handler(context, params):
-    """Route a tool call to its owning upstream server."""
+    """Route a tool call and record its audit details."""
+    await refresh_upstream_tools()
 
     tool_name = params.name
     arguments = params.arguments or {}
-
     route = TOOL_ROUTES.get(tool_name)
 
     if route is None:
+        record_audit(
+            upstream_name="unknown",
+            tool_name=tool_name,
+            duration_seconds=0,
+            outcome="failure",
+            error_message="Unknown or unavailable tool",
+        )
         return types.CallToolResult(
             content=[
                 types.TextContent(
                     type="text",
-                    text=f"Unknown tool: {tool_name}",
+                    text=f"Unknown or unavailable tool: {tool_name}",
                 )
             ],
             isError=True,
@@ -99,32 +136,47 @@ async def call_tool_handler(context, params):
     started = time.perf_counter()
 
     try:
-        result = await call_upstream_tool(
-            upstream,
-            original_name,
-            arguments,
+        result = await asyncio.wait_for(
+            call_upstream_tool(upstream, original_name, arguments),
+            timeout=20,
         )
 
         elapsed = time.perf_counter() - started
+        failed = bool(result.is_error)
+
+        record_audit(
+            upstream_name=upstream.name,
+            tool_name=original_name,
+            duration_seconds=elapsed,
+            outcome="failure" if failed else "success",
+            error_message="Upstream tool returned an error" if failed else None,
+        )
+
         print(
             f"Tool call: {tool_name} | "
             f"upstream={upstream.name} | "
             f"duration={elapsed:.3f}s | "
-            f"error={result.is_error}"
+            f"error={failed}"
         )
-
         return result
 
     except Exception as exc:
-        import traceback
-
         elapsed = time.perf_counter() - started
+
+        record_audit(
+            upstream_name=upstream.name,
+            tool_name=original_name,
+            duration_seconds=elapsed,
+            outcome="failure",
+            error_message=f"{type(exc).__name__}: {exc}"[:2000],
+        )
+
         print(
             f"Tool call failed: {tool_name} | "
+            f"upstream={upstream.name} | "
             f"duration={elapsed:.3f}s | "
             f"error={type(exc).__name__}: {exc}"
         )
-        traceback.print_exc()
 
         return types.CallToolResult(
             content=[
@@ -140,10 +192,11 @@ async def call_tool_handler(context, params):
 
 gateway = Server(
     name="Urumi Unified MCP Gateway",
-    version="0.2.0",
+    version="0.3.0",
     instructions=(
-        "This gateway exposes tools from multiple upstream MCP servers. "
-        "Tool names use the format server__tool_name."
+        "This gateway exposes tools from enabled upstream MCP servers "
+        "configured in PostgreSQL. Tool names use the format "
+        "server__tool_name."
     ),
     get_tool_input_schema=get_tool_input_schema,
     on_list_tools=list_tools_handler,
@@ -152,9 +205,10 @@ gateway = Server(
 
 
 async def main():
-    await register_upstream_tools()
+    # Populate tools before accepting client requests.
+    await refresh_upstream_tools()
 
-    print("Starting schema-preserving gateway on port 8003...")
+    print("Starting database-backed MCP gateway on port 8003...")
 
     app = gateway.streamable_http_app(host="127.0.0.1")
 
@@ -171,4 +225,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
