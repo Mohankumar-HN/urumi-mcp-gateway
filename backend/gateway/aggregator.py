@@ -4,6 +4,8 @@ import time
 from backend.gateway.audit import record_audit
 
 import uvicorn
+from backend.gateway.request_identity import current_user_id
+from backend.gateway.mcp_auth import MCPAuthMiddleware
 from mcp import types
 from mcp.server import Server
 from sqlalchemy import select
@@ -116,6 +118,7 @@ async def call_tool_handler(context, params):
 
     if route is None:
         record_audit(
+            user_id=current_user_id.get(),
             upstream_name="unknown",
             tool_name=tool_name,
             duration_seconds=0,
@@ -145,6 +148,7 @@ async def call_tool_handler(context, params):
         failed = bool(result.is_error)
 
         record_audit(
+            user_id=current_user_id.get(),
             upstream_name=upstream.name,
             tool_name=original_name,
             duration_seconds=elapsed,
@@ -164,6 +168,7 @@ async def call_tool_handler(context, params):
         elapsed = time.perf_counter() - started
 
         record_audit(
+            user_id=current_user_id.get(),
             upstream_name=upstream.name,
             tool_name=original_name,
             duration_seconds=elapsed,
@@ -211,6 +216,7 @@ async def main():
     print("Starting database-backed MCP gateway on port 8003...")
 
     app = gateway.streamable_http_app(host="127.0.0.1")
+    app.add_middleware(MCPAuthMiddleware)
 
     config = uvicorn.Config(
         app,

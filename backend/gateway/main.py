@@ -1,7 +1,15 @@
-
 from uuid import uuid4
+from datetime import datetime, timezone
+from backend.gateway.auth_models import APIKey
 
-from fastapi import FastAPI, HTTPException, Response, status
+from fastapi import (
+    FastAPI,
+    HTTPException,
+    Response,
+    status,
+    Depends,
+    Header,
+)
 from pydantic import BaseModel, Field, HttpUrl
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -9,18 +17,76 @@ from sqlalchemy.orm import Session
 
 from backend.gateway.database import SessionLocal
 from backend.gateway.models import Upstream
+from backend.gateway.auth import hash_api_key
+from backend.gateway.auth_models import User, APIKey
 
 
 app = FastAPI(
     title="Urumi MCP Gateway",
     description="A gateway for managing and routing MCP tool calls",
-    version="0.3.0",
+    version="0.4.0",
 )
 
 
 class UpstreamCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     url: HttpUrl
+
+
+def get_current_user(
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> User:
+    """Authenticate a request using its API key."""
+    if not x_api_key:
+        raise HTTPException(
+            status_code=401,
+            detail="API key required.",
+        )
+
+    key_hash = hash_api_key(x_api_key)
+
+    with SessionLocal() as db:
+        api_key = db.scalar(
+            select(APIKey).where(
+                APIKey.key_hash == key_hash,
+                APIKey.is_revoked.is_(False),
+            )
+        )
+
+        if api_key is None:
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid or revoked API key.",
+            )
+
+        user = db.get(User, api_key.user_id)
+
+        if user is None or not user.is_active:
+            raise HTTPException(
+                status_code=401,
+                detail="User is inactive or does not exist.",
+            )
+
+        # Return a detached copy of the user's identity and role.
+        return User(
+            id=user.id,
+            username=user.username,
+            role=user.role,
+            is_active=user.is_active,
+        )
+
+
+def require_admin(
+    current_user: User = Depends(get_current_user),
+) -> User:
+    """Allow administrative operations only for admins."""
+    if current_user.role != "admin":
+        raise HTTPException(
+            status_code=403,
+            detail="Admin access required.",
+        )
+
+    return current_user
 
 
 def get_upstream_or_404(db: Session, upstream_id: str) -> Upstream:
@@ -49,8 +115,20 @@ def health_check():
     return {"status": "healthy"}
 
 
+@app.get("/me")
+def get_me(current_user: User = Depends(get_current_user)):
+    """Return the identity associated with the API key."""
+    return {
+        "id": current_user.id,
+        "username": current_user.username,
+        "role": current_user.role,
+    }
+
+
 @app.get("/upstreams")
-def list_upstreams():
+def list_upstreams(
+    current_user: User = Depends(get_current_user),
+):
     with SessionLocal() as db:
         records = db.scalars(
             select(Upstream).order_by(Upstream.name)
@@ -59,7 +137,10 @@ def list_upstreams():
 
 
 @app.post("/upstreams", status_code=status.HTTP_201_CREATED)
-def create_upstream(upstream: UpstreamCreate):
+def create_upstream(
+    upstream: UpstreamCreate,
+    admin: User = Depends(require_admin),
+):
     name = upstream.name.strip()
     if not name:
         raise HTTPException(status_code=422, detail="Name cannot be blank.")
@@ -95,7 +176,11 @@ def create_upstream(upstream: UpstreamCreate):
 
 
 @app.put("/upstreams/{upstream_id}")
-def update_upstream(upstream_id: str, upstream: UpstreamCreate):
+def update_upstream(
+    upstream_id: str,
+    upstream: UpstreamCreate,
+    admin: User = Depends(require_admin),
+):
     name = upstream.name.strip()
     if not name:
         raise HTTPException(status_code=422, detail="Name cannot be blank.")
@@ -131,7 +216,10 @@ def update_upstream(upstream_id: str, upstream: UpstreamCreate):
 
 
 @app.patch("/upstreams/{upstream_id}/disable")
-def disable_upstream(upstream_id: str):
+def disable_upstream(
+    upstream_id: str,
+    admin: User = Depends(require_admin),
+):
     with SessionLocal() as db:
         record = get_upstream_or_404(db, upstream_id)
         record.enabled = False
@@ -141,7 +229,10 @@ def disable_upstream(upstream_id: str):
 
 
 @app.patch("/upstreams/{upstream_id}/enable")
-def enable_upstream(upstream_id: str):
+def enable_upstream(
+    upstream_id: str,
+    admin: User = Depends(require_admin),
+):
     with SessionLocal() as db:
         record = get_upstream_or_404(db, upstream_id)
         record.enabled = True
@@ -150,11 +241,71 @@ def enable_upstream(upstream_id: str):
         return serialize_upstream(record)
 
 
-@app.delete("/upstreams/{upstream_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_upstream(upstream_id: str):
+@app.delete(
+    "/upstreams/{upstream_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_upstream(
+    upstream_id: str,
+    admin: User = Depends(require_admin),
+):
     with SessionLocal() as db:
         record = get_upstream_or_404(db, upstream_id)
         db.delete(record)
         db.commit()
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@app.patch("/api-keys/{key_id}/revoke")
+def revoke_api_key(
+    key_id: str,
+    admin: User = Depends(require_admin),
+):
+    """Revoke an API key. Admin access required."""
+    with SessionLocal() as db:
+        api_key = db.get(APIKey, key_id)
+
+        if api_key is None:
+            raise HTTPException(
+                status_code=404,
+                detail="API key not found.",
+            )
+
+        if api_key.is_revoked:
+            return {
+                "message": "API key was already revoked.",
+                "key_id": api_key.id,
+            }
+
+        api_key.is_revoked = True
+        api_key.revoked_at = datetime.now(timezone.utc)
+
+        db.commit()
+
+        return {
+            "message": "API key revoked successfully.",
+            "key_id": api_key.id,
+        }
+
+
+@app.get("/api-keys")
+def list_api_keys(
+    admin: User = Depends(require_admin),
+):
+    """List API key metadata without exposing key secrets."""
+    with SessionLocal() as db:
+        keys = db.scalars(
+            select(APIKey).order_by(APIKey.created_at.desc())
+        ).all()
+
+        return [
+            {
+                "id": key.id,
+                "user_id": key.user_id,
+                "is_revoked": key.is_revoked,
+                "created_at": key.created_at,
+                "revoked_at": key.revoked_at,
+            }
+            for key in keys
+        ]
