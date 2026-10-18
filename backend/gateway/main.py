@@ -1,6 +1,8 @@
 from uuid import uuid4
 from datetime import datetime, timezone
 from backend.gateway.auth_models import APIKey
+from fastapi.middleware.cors import CORSMiddleware
+from backend.gateway.audit_models import AuditLog
 
 from fastapi import (
     FastAPI,
@@ -25,6 +27,16 @@ app = FastAPI(
     title="Urumi MCP Gateway",
     description="A gateway for managing and routing MCP tool calls",
     version="0.4.0",
+)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "X-API-Key"],
 )
 
 
@@ -308,4 +320,39 @@ def list_api_keys(
                 "revoked_at": key.revoked_at,
             }
             for key in keys
+        ]
+
+
+@app.get("/audit-logs")
+def list_audit_logs(
+    limit: int = 100,
+    admin: User = Depends(require_admin),
+):
+    """List recent tool-call audit records. Admin access required."""
+
+    if not 1 <= limit <= 500:
+        raise HTTPException(
+            status_code=422,
+            detail="Limit must be between 1 and 500.",
+        )
+
+    with SessionLocal() as db:
+        records = db.scalars(
+            select(AuditLog)
+            .order_by(AuditLog.timestamp.desc(), AuditLog.id.desc())
+            .limit(limit)
+        ).all()
+
+        return [
+            {
+                "id": record.id,
+                "user_id": record.user_id,
+                "upstream_name": record.upstream_name,
+                "tool_name": record.tool_name,
+                "timestamp": record.timestamp,
+                "duration_seconds": record.duration_seconds,
+                "outcome": record.outcome,
+                "error_message": record.error_message,
+            }
+            for record in records
         ]
