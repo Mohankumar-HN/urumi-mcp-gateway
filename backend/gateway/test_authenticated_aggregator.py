@@ -34,6 +34,18 @@ async def main():
                     {"visitors": 100, "purchases": 8},
                 )
                 print(response)
+                print("\nTesting WooCommerce product listing...")
+                products = await session.call_tool(
+                    "woocommerce__list_products",
+                    {"per_page": 5},
+                )
+
+                for item in products.content:
+                    if hasattr(item, "text"):
+                        print(item.text)
+
+                if products.is_error:
+                    print("WooCommerce product listing failed.")
 
 
 if __name__ == "__main__":

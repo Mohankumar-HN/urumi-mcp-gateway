@@ -43,6 +43,14 @@ const revokingId = ref('')
 const message = ref('')
 const auditFilter = ref('all')
 
+type ChatMessage = { role: 'user' | 'assistant'; content: string }
+const chatMessages = ref<ChatMessage[]>([
+  { role: 'assistant', content: 'Hi! I can help you inspect store products and orders, and run available analytics tools.' },
+])
+const chatInput = ref('')
+const chatLoading = ref(false)
+const chatError = ref('')
+
 const apiBase = 'http://127.0.0.1:8000'
 
 const activeKeyCount = computed(
@@ -87,6 +95,35 @@ async function request(path: string, options: RequestInit = {}) {
   if (response.status === 204) return null
 
   return response.json()
+}
+
+async function sendChatMessage() {
+  const messageText = chatInput.value.trim()
+  if (!messageText || chatLoading.value) return
+  if (!apiKey.value.trim()) {
+    chatError.value = 'Enter your gateway API key in Gateway connection first.'
+    return
+  }
+
+  chatMessages.value.push({ role: 'user', content: messageText })
+  chatInput.value = ''
+  chatLoading.value = true
+  chatError.value = ''
+
+  try {
+    const result = await request('/chat', {
+      method: 'POST',
+      body: JSON.stringify({ message: messageText }),
+    }) as { answer: string }
+    chatMessages.value.push({ role: 'assistant', content: result.answer })
+  } catch (error) {
+    chatError.value = errorMessage(
+      error,
+      'Chat request failed. Confirm the backend chat endpoint and Ollama are running.',
+    )
+  } finally {
+    chatLoading.value = false
+  }
 }
 
 function errorMessage(error: unknown, fallback: string) {
@@ -261,6 +298,47 @@ async function revokeApiKey(key: ApiKey) {
         Manage connected MCP servers, API keys and tool-call activity.
       </p>
     </header>
+
+    <!-- Store assistant chatbot -->
+    <section class="panel chat-panel">
+      <div class="section-heading">
+        <div>
+          <h2>Store assistant</h2>
+          <p class="subtitle">Ask about products, orders, and store analytics using your MCP tools.</p>
+        </div>
+        <span class="chat-badge">LLM · MCP tools</span>
+      </div>
+
+      <div class="chat-transcript" aria-live="polite" aria-label="Chat conversation">
+        <article
+          v-for="(item, index) in chatMessages"
+          :key="index"
+          :class="['chat-message', item.role === 'user' ? 'chat-user' : 'chat-assistant']"
+        >
+          <span class="chat-role">{{ item.role === 'user' ? 'You' : 'Urumi assistant' }}</span>
+          <p>{{ item.content }}</p>
+        </article>
+        <p v-if="chatLoading" class="chat-thinking">Thinking and checking available tools…</p>
+      </div>
+
+      <form class="chat-composer" @submit.prevent="sendChatMessage">
+        <label class="sr-only" for="chat-input">Message the store assistant</label>
+        <textarea
+          id="chat-input"
+          v-model="chatInput"
+          rows="2"
+          maxlength="2000"
+          placeholder="Ask: List the latest 5 products…"
+          :disabled="chatLoading"
+          @keydown.enter.exact.prevent="sendChatMessage"
+        />
+        <button type="submit" :disabled="chatLoading || !chatInput.trim()">
+          {{ chatLoading ? 'Working…' : 'Send' }}
+        </button>
+      </form>
+      <p v-if="chatError" class="chat-error">{{ chatError }}</p>
+      <p class="hint">Uses the gateway API key above. Chat requests require the backend <code>POST /chat</code> endpoint.</p>
+    </section>
 
     <!-- Gateway connection -->
     <section class="panel">
@@ -855,4 +933,23 @@ form button {
     width: 100%;
   }
 }
+
+
+/* Chatbot */
+.chat-panel { gap: 18px; }
+.chat-badge { border: 1px solid #344565; border-radius: 999px; padding: 6px 10px; color: #b8c8e6; font-size: 12px; white-space: nowrap; }
+.chat-transcript { display: grid; gap: 12px; max-height: 420px; overflow-y: auto; padding: 14px; border: 1px solid #27334c; border-radius: 12px; background: #090e1b; }
+.chat-message { max-width: 88%; padding: 12px 14px; border-radius: 12px; overflow-wrap: anywhere; }
+.chat-message p { margin: 6px 0 0; white-space: pre-wrap; line-height: 1.55; }
+.chat-user { justify-self: end; background: #243a61; border: 1px solid #365581; }
+.chat-assistant { justify-self: start; background: #151e30; border: 1px solid #2a3852; }
+.chat-role { font-size: 11px; color: #a9bddf; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+.chat-thinking { margin: 0; color: #a9bddf; font-size: 13px; }
+.chat-composer { display: flex; align-items: stretch; gap: 10px; }
+.chat-composer textarea { flex: 1; resize: vertical; min-width: 0; border: 1px solid #34415b; border-radius: 10px; background: #0c1323; color: #e8edf6; padding: 12px; font: inherit; }
+.chat-composer button { align-self: stretch; }
+.chat-error { margin: 0; color: #ff9ca8; overflow-wrap: anywhere; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+@media (max-width: 600px) { .chat-composer { flex-direction: column; } .chat-composer button { width: 100%; } .chat-message { max-width: 100%; } }
+
 </style>

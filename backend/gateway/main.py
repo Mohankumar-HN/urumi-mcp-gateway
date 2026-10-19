@@ -3,6 +3,8 @@ from datetime import datetime, timezone
 from backend.gateway.auth_models import APIKey
 from fastapi.middleware.cors import CORSMiddleware
 from backend.gateway.audit_models import AuditLog
+import logging
+from backend.chat.agent import chat as run_chat_agent
 
 from fastapi import (
     FastAPI,
@@ -43,6 +45,9 @@ app.add_middleware(
 class UpstreamCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     url: HttpUrl
+
+class ChatRequest(BaseModel):
+    message: str = Field(min_length=1, max_length=2000)
 
 
 def get_current_user(
@@ -356,3 +361,25 @@ def list_audit_logs(
             }
             for record in records
         ]
+
+@app.post("/chat")
+async def chat_endpoint(
+    request: ChatRequest,
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+    current_user: User = Depends(get_current_user),
+):
+    """Send a message to the authenticated user's chat agent."""
+    if not x_api_key:
+        raise HTTPException(status_code=401, detail="API key required.")
+
+    try:
+        answer = await run_chat_agent(request.message, x_api_key)
+        return {"answer": answer}
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception:
+        logging.exception("Chat request failed.")
+        raise HTTPException(
+            status_code=502,
+            detail="The chat agent could not complete the request. Check the gateway logs.",
+        )
