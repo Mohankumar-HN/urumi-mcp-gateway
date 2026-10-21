@@ -1,0 +1,37 @@
+namespace: urumi
+
+backend:
+  image: urumi-backend:local
+  imagePullPolicy: IfNotPresent
+
+gateway:
+  image: urumi-backend:local
+  imagePullPolicy: IfNotPresent
+
+frontend:
+  image: urumi-frontend:local
+  imagePullPolicy: IfNotPresent
+  apiBase: /api
+
+chat:
+  ollamaHost: http://host.docker.internal:11434
+
+wordpress:
+  host: store.urumi.test
+
+ingress:
+  className: nginx
+  dashboardHost: dashboard.urumi.test
+  apiHost: api.urumi.test
+
+postgres:
+  password: change-me-postgres
+
+mariadb:
+  password: change-me-wordpress
+  rootPassword: change-me-wordpress-root
+
+woocommerce:
+  url: http://urumi-wordpress
+  consumerKey: replace-me
+  consumerSecret: replace-me

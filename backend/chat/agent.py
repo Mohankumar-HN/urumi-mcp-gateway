@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 from typing import Any
 
 import httpx
@@ -11,8 +12,11 @@ from mcp.client.streamable_http import streamable_http_client
 load_dotenv()
 
 MODEL_NAME = "llama3.2"
-OLLAMA_HOST = "http://127.0.0.1:11434"
-GATEWAY_URL = "http://127.0.0.1:8003/mcp"
+OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434")
+GATEWAY_URL = os.getenv(
+    "GATEWAY_URL",
+    "http://127.0.0.1:8003/mcp",
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

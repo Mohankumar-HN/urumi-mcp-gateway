@@ -2,14 +2,17 @@
 import os
 import asyncio
 from decimal import Decimal, InvalidOperation
+from urllib.parse import urlencode
 
+import requests
 from dotenv import load_dotenv
-from woocommerce import API
+from woocommerce.oauth import OAuth
 from mcp.server.mcpserver import MCPServer
 
 load_dotenv()
 
 STORE_URL = os.environ["WOOCOMMERCE_URL"].rstrip("/")
+PUBLIC_STORE_URL = os.getenv("WOOCOMMERCE_PUBLIC_URL", STORE_URL).rstrip("/")
 CONSUMER_KEY = os.environ["WOOCOMMERCE_CONSUMER_KEY"]
 CONSUMER_SECRET = os.environ["WOOCOMMERCE_CONSUMER_SECRET"]
 
@@ -33,22 +36,34 @@ def woo_request(
     payload: dict | None = None,
 ):
     """Send an authenticated request through the WooCommerce client."""
-    wcapi = API(
-        url=STORE_URL,
+    if method not in {"GET", "POST", "PUT"}:
+        raise ValueError(f"Unsupported HTTP method: {method}")
+
+    query = urlencode(params or {}, doseq=True)
+    separator = "&" if "?" in endpoint else "?"
+    signing_url = f"{PUBLIC_STORE_URL}/wp-json/wc/v3/{endpoint}"
+    if query:
+        signing_url = f"{signing_url}{separator}{query}"
+
+    signed_url = OAuth(
+        url=signing_url,
         consumer_key=CONSUMER_KEY,
         consumer_secret=CONSUMER_SECRET,
         version="wc/v3",
+        method=method,
+    ).get_oauth_url()
+    request_url = signed_url.replace(PUBLIC_STORE_URL, STORE_URL, 1)
+    response = requests.request(
+        method,
+        request_url,
+        headers={
+            "user-agent": "WooCommerce-Python-REST-API/3.0.0",
+            "accept": "application/json",
+            "content-type": "application/json",
+        },
+        json=payload if method in {"POST", "PUT"} else None,
         timeout=15,
     )
-
-    if method == "GET":
-        response = wcapi.get(endpoint, params=params)
-    elif method == "POST":
-        response = wcapi.post(endpoint, data=payload)
-    elif method == "PUT":
-        response = wcapi.put(endpoint, data=payload)
-    else:
-        raise ValueError(f"Unsupported HTTP method: {method}")
 
     response.raise_for_status()
     return response.json()
@@ -217,6 +232,6 @@ async def update_order_status(order_id: int, status: str) -> dict:
 if __name__ == "__main__":
     server.run(
         transport="streamable-http",
-        host="127.0.0.1",
-        port=8004,
+        host=os.getenv("MCP_HOST", "127.0.0.1"),
+        port=int(os.getenv("MCP_PORT", "8004")),
     )

@@ -1,5 +1,6 @@
 
 import asyncio
+import os
 import time
 from backend.gateway.audit import record_audit
 
@@ -215,13 +216,15 @@ async def main():
 
     print("Starting database-backed MCP gateway on port 8003...")
 
-    app = gateway.streamable_http_app(host="127.0.0.1")
+    host = os.getenv("GATEWAY_HOST", "127.0.0.1")
+    port = int(os.getenv("GATEWAY_PORT", "8003"))
+    app = gateway.streamable_http_app(host=host)
     app.add_middleware(MCPAuthMiddleware)
 
     config = uvicorn.Config(
         app,
-        host="127.0.0.1",
-        port=8003,
+        host=host,
+        port=port,
         log_level="info",
     )
 

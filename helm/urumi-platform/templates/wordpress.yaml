@@ -1,0 +1,96 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: urumi-wordpress-data
+  namespace: {{ .Values.namespace }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- $wordpressStorageClass := .Values.wordpress.storageClass | default .Values.mariadb.storageClass }}
+  {{- if $wordpressStorageClass }}
+  storageClassName: {{ $wordpressStorageClass | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: urumi-wordpress
+  namespace: {{ .Values.namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: urumi-wordpress
+  template:
+    metadata:
+      labels:
+        app: urumi-wordpress
+    spec:
+      containers:
+        - name: wordpress
+          image: {{ .Values.wordpress.image }}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 80
+          env:
+            - name: WORDPRESS_DB_HOST
+              value: urumi-mariadb:3306
+            - name: WORDPRESS_DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: urumi-mariadb-secret
+                  key: MARIADB_DATABASE
+            - name: WORDPRESS_DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: urumi-mariadb-secret
+                  key: MARIADB_USER
+            - name: WORDPRESS_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: urumi-mariadb-secret
+                  key: MARIADB_PASSWORD
+          volumeMounts:
+            - name: wordpress-data
+              mountPath: /var/www/html
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+      volumes:
+        - name: wordpress-data
+          persistentVolumeClaim:
+            claimName: urumi-wordpress-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: urumi-wordpress
+  namespace: {{ .Values.namespace }}
+spec:
+  type: ClusterIP
+  selector:
+    app: urumi-wordpress
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

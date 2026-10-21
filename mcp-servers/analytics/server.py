@@ -1,4 +1,6 @@
 
+import os
+
 from mcp.server.mcpserver import MCPServer
 
 server = MCPServer("Urumi Analytics Tools")
@@ -46,6 +48,6 @@ def calculate_revenue_summary(
 if __name__ == "__main__":
     server.run(
         transport="streamable-http",
-        host="127.0.0.1",
-        port=8002,
+        host=os.getenv("MCP_HOST", "127.0.0.1"),
+        port=int(os.getenv("MCP_PORT", "8002")),
     )

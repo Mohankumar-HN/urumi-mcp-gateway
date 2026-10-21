@@ -37,3 +37,4 @@ Thumbs.db
 # Local database files
 *.db
 *.sqlite3
+prefix/woocommerce_api_keys

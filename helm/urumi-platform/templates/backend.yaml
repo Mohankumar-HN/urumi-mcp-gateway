@@ -1,0 +1,89 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: urumi-backend
+  namespace: {{ .Values.namespace }}
+spec:
+  replicas: {{ .Values.backend.replicas }}
+  selector:
+    matchLabels:
+      app: urumi-backend
+  template:
+    metadata:
+      labels:
+        app: urumi-backend
+    spec:
+      containers:
+        - name: backend
+          image: {{ .Values.backend.image }}
+          imagePullPolicy: {{ .Values.backend.imagePullPolicy }}
+          command:
+            - sh
+            - -c
+            - >-
+              until python -m backend.gateway.bootstrap; do sleep 3; done;
+              exec uvicorn backend.gateway.main:app --host 0.0.0.0 --port 8000
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            - name: POSTGRES_HOST
+              value: urumi-postgres
+            - name: POSTGRES_PORT
+              value: "5432"
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: urumi-postgres-secret
+                  key: POSTGRES_DB
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: urumi-postgres-secret
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: urumi-postgres-secret
+                  key: POSTGRES_PASSWORD
+            - name: BOOTSTRAP_UPSTREAMS
+              value: analytics=http://urumi-analytics:8002/mcp,time=http://urumi-time-tools:8001/mcp,woocommerce=http://urumi-woocommerce:8004/mcp
+            - name: CORS_ORIGINS
+              value: {{ printf "%s://%s" (ternary "https" "http" .Values.ingress.tls.enabled) .Values.ingress.dashboardHost | quote }}
+            - name: GATEWAY_URL
+              value: http://urumi-gateway:8003/mcp
+            - name: OLLAMA_HOST
+              value: {{ .Values.chat.ollamaHost | quote }}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: urumi-backend
+  namespace: {{ .Values.namespace }}
+spec:
+  type: ClusterIP
+  selector:
+    app: urumi-backend
+  ports:
+    - name: http
+      port: {{ .Values.backend.port }}
+      targetPort: http

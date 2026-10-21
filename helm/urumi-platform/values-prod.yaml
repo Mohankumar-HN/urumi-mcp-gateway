@@ -1,0 +1,42 @@
+namespace: urumi
+
+backend:
+  image: ghcr.io/replace-me/urumi-backend:latest
+  imagePullPolicy: IfNotPresent
+
+gateway:
+  image: ghcr.io/replace-me/urumi-backend:latest
+  imagePullPolicy: IfNotPresent
+
+frontend:
+  image: ghcr.io/replace-me/urumi-frontend:latest
+  imagePullPolicy: IfNotPresent
+  apiBase: /api
+
+chat:
+  ollamaHost: http://ollama:11434
+
+wordpress:
+  host: store.example.com
+
+ingress:
+  className: nginx
+  dashboardHost: dashboard.example.com
+  apiHost: api.example.com
+  tls:
+    enabled: true
+    secretName: urumi-tls
+
+postgres:
+  storageClass: ""
+  password: ""
+
+mariadb:
+  storageClass: ""
+  password: ""
+  rootPassword: ""
+
+woocommerce:
+  url: https://store.example.com
+  consumerKey: ""
+  consumerSecret: ""

@@ -1,0 +1,141 @@
+{{- $servers := list
+  (dict "name" "analytics" "service" "urumi-analytics" "image" .Values.analytics.image "pullPolicy" .Values.analytics.imagePullPolicy "port" 8002 "command" "mcp-servers/analytics/server.py")
+  (dict "name" "time-tools" "service" "urumi-time-tools" "image" .Values.timeTools.image "pullPolicy" .Values.timeTools.imagePullPolicy "port" 8001 "command" "mcp-servers/time-tools/server.py")
+}}
+{{- range $server := $servers }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: urumi-{{ $server.name }}
+  namespace: {{ $.Values.namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: urumi-{{ $server.name }}
+  template:
+    metadata:
+      labels:
+        app: urumi-{{ $server.name }}
+    spec:
+      containers:
+        - name: mcp-server
+          image: {{ $server.image }}
+          imagePullPolicy: {{ $server.pullPolicy }}
+          command: ["python", "{{ $server.command }}"]
+          env:
+            - name: MCP_HOST
+              value: 0.0.0.0
+            - name: MCP_PORT
+              value: "{{ $server.port }}"
+          ports:
+            - name: mcp
+              containerPort: {{ $server.port }}
+          readinessProbe:
+            tcpSocket:
+              port: mcp
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: mcp
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $server.service }}
+  namespace: {{ $.Values.namespace }}
+spec:
+  type: ClusterIP
+  selector:
+    app: urumi-{{ $server.name }}
+  ports:
+    - name: mcp
+      port: {{ $server.port }}
+      targetPort: mcp
+{{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: urumi-woocommerce
+  namespace: {{ .Values.namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: urumi-woocommerce
+  template:
+    metadata:
+      labels:
+        app: urumi-woocommerce
+    spec:
+      containers:
+        - name: mcp-server
+          image: {{ .Values.backend.image }}
+          imagePullPolicy: {{ .Values.backend.imagePullPolicy }}
+          command: ["python", "mcp-servers/woocommerce/server.py"]
+          env:
+            - name: MCP_HOST
+              value: 0.0.0.0
+            - name: MCP_PORT
+              value: "8004"
+            - name: WOOCOMMERCE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: urumi-woocommerce-secret
+                  key: WOOCOMMERCE_URL
+            - name: WOOCOMMERCE_CONSUMER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: urumi-woocommerce-secret
+                  key: WOOCOMMERCE_CONSUMER_KEY
+            - name: WOOCOMMERCE_CONSUMER_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: urumi-woocommerce-secret
+                  key: WOOCOMMERCE_CONSUMER_SECRET
+          ports:
+            - name: mcp
+              containerPort: 8004
+          readinessProbe:
+            tcpSocket:
+              port: mcp
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: mcp
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: urumi-woocommerce
+  namespace: {{ .Values.namespace }}
+spec:
+  type: ClusterIP
+  selector:
+    app: urumi-woocommerce
+  ports:
+    - name: mcp
+      port: 8004
+      targetPort: mcp

@@ -51,7 +51,7 @@ const chatInput = ref('')
 const chatLoading = ref(false)
 const chatError = ref('')
 
-const apiBase = 'http://127.0.0.1:8000'
+const apiBase = import.meta.env.VITE_API_BASE || '/api'
 
 const activeKeyCount = computed(
   () => apiKeys.value.filter(key => !key.is_revoked).length,

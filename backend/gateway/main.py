@@ -4,6 +4,7 @@ from backend.gateway.auth_models import APIKey
 from fastapi.middleware.cors import CORSMiddleware
 from backend.gateway.audit_models import AuditLog
 import logging
+import os
 from backend.chat.agent import chat as run_chat_agent
 
 from fastapi import (
@@ -33,8 +34,12 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
+        origin.strip()
+        for origin in os.getenv(
+            "CORS_ORIGINS",
+            "http://localhost:5173,http://127.0.0.1:5173",
+        ).split(",")
+        if origin.strip()
     ],
     allow_credentials=False,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],

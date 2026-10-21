@@ -23,7 +23,7 @@ services:
       database:
         condition: service_healthy
     ports:
-      - "8080:80"
+      - "8081:80"
     environment:
       WORDPRESS_DB_HOST: database:3306
       WORDPRESS_DB_NAME: ${DB_NAME}
@@ -34,6 +34,136 @@ services:
       - ./php-uploads.ini:/usr/local/etc/php/conf.d/uploads.ini
       - ./wordpress-auth.conf:/etc/apache2/conf-enabled/wordpress-auth.conf:ro
 
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      analytics:
+        condition: service_started
+      time-tools:
+        condition: service_started
+      woocommerce:
+        condition: service_started
+    environment: &backend-environment
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      BOOTSTRAP_UPSTREAMS: analytics=http://analytics:8002/mcp,time=http://time-tools:8001/mcp,woocommerce=http://woocommerce:8004/mcp
+      CORS_ORIGINS: http://127.0.0.1:5173,http://localhost:5173
+      GATEWAY_HOST: 0.0.0.0
+      GATEWAY_URL: http://gateway:8003/mcp
+      OLLAMA_HOST: http://host.docker.internal:11434
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    command:
+      - sh
+      - -c
+      - until python -m backend.gateway.bootstrap; do sleep 3; done; exec uvicorn backend.gateway.main:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      analytics:
+        condition: service_started
+      time-tools:
+        condition: service_started
+      woocommerce:
+        condition: service_started
+    environment: *backend-environment
+    command:
+      - sh
+      - -c
+      - until python -m backend.gateway.bootstrap; do sleep 3; done; exec python -m backend.gateway.aggregator
+    ports:
+      - "8003:8003"
+
+  analytics:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: ["python", "mcp-servers/analytics/server.py"]
+    environment:
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: 8002
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    expose:
+      - "8002"
+
+  time-tools:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: ["python", "mcp-servers/time-tools/server.py"]
+    environment:
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: 8001
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    expose:
+      - "8001"
+
+  woocommerce:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      wordpress:
+        condition: service_started
+    environment:
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: 8004
+      WOOCOMMERCE_URL: http://wordpress
+      WOOCOMMERCE_PUBLIC_URL: http://127.0.0.1:8081
+      WOOCOMMERCE_CONSUMER_KEY: ${WOOCOMMERCE_CONSUMER_KEY}
+      WOOCOMMERCE_CONSUMER_SECRET: ${WOOCOMMERCE_CONSUMER_SECRET}
+    command: ["python", "mcp-servers/woocommerce/server.py"]
+    expose:
+      - "8004"
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE: http://127.0.0.1:8000
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "5173:80"
+
 volumes:
   mariadb_data:
   wordpress_data:
+  postgres_data:

@@ -1,0 +1,70 @@
+namespace: urumi
+
+backend:
+  image: urumi-backend:local
+  imagePullPolicy: IfNotPresent
+  replicas: 1
+  port: 8000
+
+gateway:
+  image: urumi-backend:local
+  imagePullPolicy: IfNotPresent
+  replicas: 1
+  port: 8003
+
+frontend:
+  image: urumi-frontend:local
+  imagePullPolicy: IfNotPresent
+  replicas: 1
+  port: 80
+  apiBase: /api
+
+chat:
+  ollamaHost: http://host.docker.internal:11434
+
+wordpress:
+  image: wordpress:php8.2-apache
+  host: store.urumi.test
+  storageClass: ""
+
+mariadb:
+  image: mariadb:11.4
+  database: wordpress
+  username: urumi_wp
+  storage: 5Gi
+  password: ""
+  rootPassword: ""
+
+postgres:
+  image: postgres:17
+  database: urumi_gateway
+  username: urumi_app
+  password: ""
+  storage: 2Gi
+  storageClass: ""
+
+woocommerce:
+  url: ""
+  consumerKey: ""
+  consumerSecret: ""
+
+analytics:
+  image: urumi-backend:local
+  imagePullPolicy: IfNotPresent
+  port: 8002
+
+timeTools:
+  image: urumi-backend:local
+  imagePullPolicy: IfNotPresent
+  port: 8001
+
+ingress:
+  className: nginx
+  dashboardHost: dashboard.urumi.test
+  apiHost: api.urumi.test
+  tls:
+    enabled: false
+    secretName: ""
+
+service:
+  frontendNodePort: 30080
