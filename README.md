@@ -106,6 +106,43 @@ ports only from the gateway pods. The dashboard and storefront are exposed throu
 dashboard uses same-host `/api` routing, while the API also has its own
 `api.<domain>` host for direct clients.
 
+### Kubernetes verification checklist
+
+Use these checks after the chart is installed:
+
+```powershell
+kubectl get pods,svc,pvc,ingress -n urumi
+kubectl port-forward -n urumi svc/urumi-backend 18000:8000
+kubectl port-forward -n urumi svc/urumi-gateway 18003:8003
+curl.exe http://127.0.0.1:18000/health
+```
+
+Create one admin and one member API key, then verify `/me`, member key
+generation, revocation, and the admin-only `/api-keys` endpoint. Connect an
+external MCP client to `http://127.0.0.1:18003/mcp` with the
+`X-API-Key` header. The gateway should expose prefixed tools from analytics,
+time, and WooCommerce.
+
+To demonstrate failure isolation, disable one upstream through the dashboard
+or API and confirm its tools disappear while the other tools remain available.
+For a dead-pod test, scale an upstream to zero, list gateway tools, call a
+different upstream, and then restore the replica:
+
+```powershell
+kubectl scale deployment/urumi-analytics -n urumi --replicas=0
+kubectl scale deployment/urumi-analytics -n urumi --replicas=1
+```
+
+The chart's WordPress volume starts empty in a new Kubernetes namespace.
+Complete the normal WordPress installation and install/activate WooCommerce
+before testing storefront checkout and order tools. The Docker Compose
+environment remains the ready-to-use local store demonstration.
+
+Kind and k3d do not automatically make a host Ollama process reachable from
+pods. For Kubernetes chat, either deploy Ollama and its model in the cluster,
+or set `chat.ollamaHost` to a routable model-service URL. Do not rely on
+`host.docker.internal` for a production-like cluster.
+
 ## Production-like k3s
 
 Use the same chart with `values-prod.yaml`, replacing image names, DNS hosts,

@@ -4,13 +4,13 @@ kind: Ingress
 metadata:
   name: urumi-dashboard
   namespace: {{ .Values.namespace }}
-spec:
-  ingressClassName: {{ .Values.ingress.className }}
   {{- if eq .Values.ingress.className "nginx" }}
   annotations:
     nginx.ingress.kubernetes.io/use-regex: "true"
     nginx.ingress.kubernetes.io/rewrite-target: /$2
   {{- end }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
   {{- if $tls }}
   tls:
     - hosts:

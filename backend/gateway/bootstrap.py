@@ -9,8 +9,9 @@ from backend.gateway.models import Upstream
 
 def bootstrap() -> None:
     """Create tables and register configured internal MCP upstreams."""
-    Base.metadata.create_all(bind=engine)
     with engine.begin() as connection:
+        connection.execute(text("SELECT pg_advisory_xact_lock(734521)"))
+        Base.metadata.create_all(bind=connection)
         connection.execute(text(
             "ALTER TABLE upstreams ADD COLUMN IF NOT EXISTS credential VARCHAR(1000)"
         ))
