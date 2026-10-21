@@ -45,6 +45,7 @@ postgres:
 
 woocommerce:
   url: ""
+  publicUrl: ""
   consumerKey: ""
   consumerSecret: ""
 

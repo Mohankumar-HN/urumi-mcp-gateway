@@ -61,3 +61,17 @@ def authenticate_api_key(db: Session, raw_key: str) -> User | None:
     )
 
     return user
+
+
+def create_api_key(db: Session, user_id: str) -> str:
+    """Create and persist a key, returning the secret exactly once."""
+    raw_key = generate_api_key()
+    db.add(
+        APIKey(
+            id=str(uuid.uuid4()),
+            user_id=user_id,
+            key_hash=hash_api_key(raw_key),
+        )
+    )
+    db.commit()
+    return raw_key

@@ -6,7 +6,9 @@ type Upstream = {
   id: string
   name: string
   url: string
+  credential: string | null
   enabled: boolean
+  status: 'connected' | 'unreachable' | 'disabled' | 'unknown'
 }
 
 type ApiKey = {
@@ -35,6 +37,9 @@ const auditLogs = ref<AuditLog[]>([])
 
 const name = ref('')
 const url = ref('')
+const credential = ref('')
+const currentUser = ref<{ username: string; role: string } | null>(null)
+const newApiKey = ref('')
 
 const loading = ref(false)
 const keysLoading = ref(false)
@@ -163,6 +168,20 @@ async function loadUpstreams(): Promise<boolean> {
   }
 }
 
+async function loadCurrentUser() {
+  currentUser.value = await request('/me')
+}
+
+async function generateApiKey() {
+  try {
+    const result = await request('/api-keys', { method: 'POST' }) as { api_key: string }
+    newApiKey.value = result.api_key
+    message.value = 'New API key created. Copy it now; it will not be shown again.'
+  } catch (error) {
+    message.value = errorMessage(error, 'Failed to create API key.')
+  }
+}
+
 async function loadApiKeys(): Promise<boolean> {
   if (!apiKey.value.trim()) return false
 
@@ -206,10 +225,21 @@ async function connectGateway() {
   const upstreamsLoaded = await loadUpstreams()
   if (!upstreamsLoaded) return
 
-  const keysLoaded = await loadApiKeys()
+  try {
+    await loadCurrentUser()
+  } catch (error) {
+    message.value = errorMessage(error, 'Failed to load current user.')
+    return
+  }
+
+  const keysLoaded = currentUser.value?.role === 'admin'
+    ? await loadApiKeys()
+    : true
   if (!keysLoaded) return
 
-  const auditLoaded = await loadAuditLogs()
+  const auditLoaded = currentUser.value?.role === 'admin'
+    ? await loadAuditLogs()
+    : true
 
   message.value = auditLoaded
     ? 'Connected successfully. Upstreams, API keys and audit logs loaded.'
@@ -228,11 +258,13 @@ async function addUpstream() {
       body: JSON.stringify({
         name: name.value.trim(),
         url: url.value.trim(),
+        credential: credential.value.trim() || null,
       }),
     })
 
     name.value = ''
     url.value = ''
+    credential.value = ''
     message.value = 'Upstream added.'
 
     const loaded = await loadUpstreams()
@@ -398,10 +430,18 @@ async function revokeApiKey(key: ApiKey) {
             <span
               :class="[
                 'status',
-                server.enabled ? 'active' : 'inactive',
+                server.status === 'connected' ? 'active' : 'inactive',
               ]"
             >
-              {{ server.enabled ? 'Enabled' : 'Disabled' }}
+              {{
+                server.status === 'disabled'
+                  ? 'Disabled'
+                  : server.status === 'connected'
+                    ? 'Connected'
+                    : server.status === 'unreachable'
+                      ? 'Unreachable'
+                      : 'Unknown'
+              }}
             </span>
           </div>
 
@@ -417,6 +457,7 @@ async function revokeApiKey(key: ApiKey) {
       <p v-else class="empty">
         No upstreams loaded. Connect to view configured servers.
       </p>
+
     </section>
 
     <!-- API key management -->
@@ -495,6 +536,12 @@ async function revokeApiKey(key: ApiKey) {
       <p class="hint">
         Only key metadata is displayed. Secret API keys are not shown here.
         Revocation cannot be undone for that key.
+      </p>
+      <button class="secondary" @click="generateApiKey">
+        Generate my API key
+      </button>
+      <p v-if="newApiKey" class="message">
+        Copy this key now: <code>{{ newApiKey }}</code>
       </p>
     </section>
 
@@ -594,6 +641,15 @@ async function revokeApiKey(key: ApiKey) {
           type="url"
           required
           placeholder="http://127.0.0.1:8004/mcp"
+        />
+
+        <label for="server-credential">Optional static credential</label>
+        <input
+          id="server-credential"
+          v-model.trim="credential"
+          type="password"
+          autocomplete="off"
+          placeholder="Bearer token or static key"
         />
 
         <button type="submit">Add server</button>

@@ -38,9 +38,22 @@ def load_enabled_upstreams() -> list[UpstreamServer]:
         ).all()
 
         return [
-            UpstreamServer(name=record.name, url=record.url)
+            UpstreamServer(
+                name=record.name,
+                url=record.url,
+                credential=record.credential,
+            )
             for record in records
         ]
+
+
+def update_upstream_status(name: str, status: str, message: str | None = None):
+    with SessionLocal() as db:
+        record = db.scalar(select(UpstreamRecord).where(UpstreamRecord.name == name))
+        if record is not None:
+            record.status = status
+            record.status_message = message[:500] if message else None
+            db.commit()
 
 
 async def refresh_upstream_tools():
@@ -58,11 +71,19 @@ async def refresh_upstream_tools():
                     timeout=10,
                 )
             except Exception as exc:
+                await asyncio.to_thread(
+                    update_upstream_status,
+                    upstream.name,
+                    "unreachable",
+                    f"{type(exc).__name__}: {exc}",
+                )
                 print(
                     f"Could not discover {upstream.name}: "
                     f"{type(exc).__name__}: {exc}"
                 )
                 continue
+
+            await asyncio.to_thread(update_upstream_status, upstream.name, "connected")
 
             for tool in tools:
                 original_name = tool["name"]

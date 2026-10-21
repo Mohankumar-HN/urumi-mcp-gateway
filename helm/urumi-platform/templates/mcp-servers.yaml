@@ -95,6 +95,11 @@ spec:
                 secretKeyRef:
                   name: urumi-woocommerce-secret
                   key: WOOCOMMERCE_URL
+            - name: WOOCOMMERCE_PUBLIC_URL
+              valueFrom:
+                secretKeyRef:
+                  name: urumi-woocommerce-secret
+                  key: WOOCOMMERCE_PUBLIC_URL
             - name: WOOCOMMERCE_CONSUMER_KEY
               valueFrom:
                 secretKeyRef:

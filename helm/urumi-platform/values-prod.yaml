@@ -38,5 +38,6 @@ mariadb:
 
 woocommerce:
   url: https://store.example.com
+  publicUrl: https://store.example.com
   consumerKey: ""
   consumerSecret: ""

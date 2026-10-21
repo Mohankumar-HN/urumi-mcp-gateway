@@ -5,6 +5,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.gateway.audit_models import AuditLog
 import logging
 import os
+import asyncio
+from backend.gateway.auth_service import create_api_key
+from backend.gateway.upstream import UpstreamServer, discover_tools
 from backend.chat.agent import chat as run_chat_agent
 
 from fastapi import (
@@ -50,6 +53,7 @@ app.add_middleware(
 class UpstreamCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     url: HttpUrl
+    credential: str | None = Field(default=None, max_length=1000)
 
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=2000)
@@ -124,6 +128,7 @@ def serialize_upstream(upstream: Upstream) -> dict:
         "name": upstream.name,
         "url": upstream.url,
         "enabled": upstream.enabled,
+        "status": "disabled" if not upstream.enabled else upstream.status,
     }
 
 
@@ -181,6 +186,7 @@ def create_upstream(
             id=str(uuid4()),
             name=name,
             url=str(upstream.url).rstrip("/"),
+            credential=upstream.credential.strip() if upstream.credential else None,
             enabled=True,
         )
         db.add(record)
@@ -224,6 +230,9 @@ def update_upstream(
 
         record.name = name
         record.url = str(upstream.url).rstrip("/")
+        record.credential = (
+            upstream.credential.strip() if upstream.credential else None
+        )
 
         try:
             db.commit()
@@ -331,6 +340,16 @@ def list_api_keys(
             }
             for key in keys
         ]
+
+
+@app.post("/api-keys")
+def create_my_api_key(current_user: User = Depends(get_current_user)):
+    """Create a key for the authenticated user and return it once."""
+    with SessionLocal() as db:
+        return {
+            "api_key": create_api_key(db, current_user.id),
+            "message": "Store this key securely; it will not be shown again.",
+        }
 
 
 @app.get("/audit-logs")

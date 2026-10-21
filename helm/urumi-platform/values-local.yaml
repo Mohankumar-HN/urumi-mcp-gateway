@@ -33,5 +33,6 @@ mariadb:
 
 woocommerce:
   url: http://urumi-wordpress
+  publicUrl: http://store.urumi.test
   consumerKey: replace-me
   consumerSecret: replace-me

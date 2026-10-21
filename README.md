@@ -82,6 +82,7 @@ helm upgrade --install urumi .\helm\urumi-platform `
   --set mariadb.rootPassword=<wordpress-root-password> `
   --set postgres.password=<gateway-database-password> `
   --set woocommerce.url=http://urumi-wordpress `
+  --set woocommerce.publicUrl=http://store.urumi.test `
   --set woocommerce.consumerKey=<woocommerce-key> `
   --set woocommerce.consumerSecret=<woocommerce-secret>
 ```
@@ -94,6 +95,7 @@ helm template urumi .\helm\urumi-platform -f .\helm\urumi-platform\values-local.
   --set mariadb.password=test --set mariadb.rootPassword=test-root `
   --set postgres.password=test-postgres `
   --set woocommerce.url=http://urumi-wordpress `
+  --set woocommerce.publicUrl=http://store.urumi.test `
   --set woocommerce.consumerKey=test-key `
   --set woocommerce.consumerSecret=test-secret
 kubectl get pods,svc,ingress -n urumi
@@ -116,7 +118,8 @@ helm upgrade --install urumi .\helm\urumi-platform `
   --set postgres.password=<from-secret-manager> `
   --set mariadb.password=<from-secret-manager> `
   --set mariadb.rootPassword=<from-secret-manager> `
-  --set woocommerce.url=https://store.example.com `
+  --set woocommerce.url=http://urumi-wordpress `
+  --set woocommerce.publicUrl=https://store.example.com `
   --set woocommerce.consumerKey=<from-secret-manager> `
   --set woocommerce.consumerSecret=<from-secret-manager>
 ```
