@@ -22,6 +22,20 @@ frontend:
 chat:
   ollamaHost: http://host.docker.internal:11434
 
+ollama:
+  enabled: false
+  image: ollama/ollama:latest
+  model: llama3.2
+  storage: 8Gi
+  storageClass: ""
+  resources:
+    requests:
+      cpu: 250m
+      memory: 1Gi
+    limits:
+      cpu: 1
+      memory: 3Gi
+
 wordpress:
   image: wordpress:php8.2-apache
   host: store.urumi.test

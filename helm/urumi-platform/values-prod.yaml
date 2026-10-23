@@ -16,6 +16,11 @@ frontend:
 chat:
   ollamaHost: http://ollama:11434
 
+ollama:
+  enabled: true
+  model: llama3.2
+  storage: 20Gi
+
 wordpress:
   host: store.example.com
 

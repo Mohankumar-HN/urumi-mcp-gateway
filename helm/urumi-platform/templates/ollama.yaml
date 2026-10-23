@@ -1,0 +1,88 @@
+{{- if .Values.ollama.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: urumi-ollama-data
+  namespace: {{ .Values.namespace }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- if .Values.ollama.storageClass }}
+  storageClassName: {{ .Values.ollama.storageClass | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.ollama.storage }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: urumi-ollama
+  namespace: {{ .Values.namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: urumi-ollama
+  template:
+    metadata:
+      labels:
+        app: urumi-ollama
+    spec:
+      containers:
+        - name: ollama
+          image: {{ .Values.ollama.image }}
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - >-
+              ollama serve &
+              pid=$!;
+              until ollama list >/dev/null 2>&1; do sleep 2; done;
+              ollama pull {{ .Values.ollama.model }};
+              wait $pid
+          ports:
+            - name: http
+              containerPort: 11434
+          env:
+            - name: OLLAMA_HOST
+              value: 0.0.0.0:11434
+          readinessProbe:
+            httpGet:
+              path: /api/tags
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /api/tags
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 5
+          resources:
+{{ toYaml .Values.ollama.resources | indent 12 }}
+          volumeMounts:
+            - name: model-data
+              mountPath: /root/.ollama
+      volumes:
+        - name: model-data
+          persistentVolumeClaim:
+            claimName: urumi-ollama-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: urumi-ollama
+  namespace: {{ .Values.namespace }}
+spec:
+  type: ClusterIP
+  selector:
+    app: urumi-ollama
+  ports:
+    - name: http
+      port: 11434
+      targetPort: http
+{{- end }}

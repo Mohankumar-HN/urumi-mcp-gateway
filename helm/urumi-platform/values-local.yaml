@@ -14,7 +14,12 @@ frontend:
   apiBase: /api
 
 chat:
-  ollamaHost: http://host.docker.internal:11434
+  ollamaHost: http://urumi-ollama:11434
+
+ollama:
+  enabled: true
+  model: llama3.2
+  storage: 8Gi
 
 wordpress:
   host: store.urumi.test

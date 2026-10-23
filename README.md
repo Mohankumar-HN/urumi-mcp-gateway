@@ -139,9 +139,12 @@ before testing storefront checkout and order tools. The Docker Compose
 environment remains the ready-to-use local store demonstration.
 
 Kind and k3d do not automatically make a host Ollama process reachable from
-pods. For Kubernetes chat, either deploy Ollama and its model in the cluster,
-or set `chat.ollamaHost` to a routable model-service URL. Do not rely on
-`host.docker.internal` for a production-like cluster.
+pods. The local values file now enables an in-cluster Ollama deployment with
+the `llama3.2` model and an 8 GiB persistent volume. The first startup
+downloads the model and can take several minutes; increase Docker/Kind memory
+if the Ollama pod is evicted. Production-like values enable the same workload
+with a 20 GiB volume. To use an external model service instead, set
+`ollama.enabled=false` and point `chat.ollamaHost` at a routable URL.
 
 ## Production-like k3s
 
