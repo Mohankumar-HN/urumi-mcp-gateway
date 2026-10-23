@@ -2,7 +2,7 @@
 import os
 import asyncio
 from decimal import Decimal, InvalidOperation
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 import requests
 from dotenv import load_dotenv
@@ -39,6 +39,7 @@ def woo_request(
     if method not in {"GET", "POST", "PUT"}:
         raise ValueError(f"Unsupported HTTP method: {method}")
 
+    endpoint = endpoint.rstrip("/") + "/"
     query = urlencode(params or {}, doseq=True)
     separator = "&" if "?" in endpoint else "?"
     signing_url = f"{PUBLIC_STORE_URL}/wp-json/wc/v3/{endpoint}"
@@ -53,6 +54,7 @@ def woo_request(
         method=method,
     ).get_oauth_url()
     request_url = signed_url.replace(PUBLIC_STORE_URL, STORE_URL, 1)
+    public_host = urlparse(PUBLIC_STORE_URL).netloc
     response = requests.request(
         method,
         request_url,
@@ -60,6 +62,7 @@ def woo_request(
             "user-agent": "WooCommerce-Python-REST-API/3.0.0",
             "accept": "application/json",
             "content-type": "application/json",
+            "host": public_host,
         },
         json=payload if method in {"POST", "PUT"} else None,
         timeout=15,
