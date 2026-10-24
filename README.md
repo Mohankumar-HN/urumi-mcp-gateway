@@ -97,6 +97,16 @@ scripts and are not run automatically when containers start. For example:
 docker compose exec woocommerce python tests/integration/test_woocommerce_server.py
 ```
 
+### Place an order locally
+
+After completing the WordPress and WooCommerce setup, open the storefront at
+`http://127.0.0.1:8081`, add a product to the cart, complete checkout using
+the test payment flow, and confirm the order in WooCommerce admin. The order
+tools can then be exercised through the dashboard or an authenticated MCP
+client. Kubernetes uses the same workflow after WordPress initialization and
+Ingress setup; port-forwarding is the fallback when no Ingress controller is
+available.
+
 ## Local Kubernetes
 
 The chart is designed for Kind, Minikube, or k3d. The local values use
@@ -226,9 +236,70 @@ client sees names such as `analytics__calculate_conversion_rate` and
 internal server. The dashboard chat sends the same API key to the backend,
 which passes it to the gateway, so calls are audited under the logged-in user.
 
+To use the dashboard chat, enter a gateway API key in the dashboard, connect
+the gateway, and submit a product, order, analytics, or current-time question
+in the chat panel. The backend creates an authenticated MCP session to the
+gateway, discovers the available tools, lets Ollama choose and call tools, and
+returns the final answer. Tool calls made by chat are recorded in the audit
+log under the authenticated user. Docker Compose chat was verified with the
+host Ollama service. Kubernetes chat requires the in-cluster Ollama resources
+described above or another reachable model endpoint.
+
 Upstream WooCommerce credentials are Kubernetes/Compose secrets consumed only
 by the WooCommerce MCP server. They are not returned by the dashboard or
 forwarded from external MCP clients.
+
+## System design and tradeoffs
+
+The platform separates the management API, the authenticated MCP gateway, the
+dashboard, the WooCommerce MCP server, two additional MCP servers, and the
+stateful PostgreSQL, MariaDB, and WordPress components. Docker Compose and
+the Helm chart use the same application images and service boundaries so local
+validation and production-like deployment follow the same architecture.
+
+The gateway discovers enabled upstreams and prefixes each tool with its
+upstream name, for example `analytics__calculate_conversion_rate`. This
+avoids collisions between servers that expose the same tool name. Calls are
+routed by the prefix, use bounded timeouts, and record success or failure.
+Failure isolation is preferred over all-or-nothing discovery: an unavailable
+upstream is marked unavailable while healthy upstream tools remain usable.
+
+The tradeoff is operational simplicity over maximum isolation. The gateway
+uses one PostgreSQL database and one gateway process, which makes the
+assignment deployment easy to operate, but a larger production installation
+would normally add replicas, managed databases, centralized logs, external
+secret management, and stronger per-tenant quotas. WooCommerce REST API
+credentials are kept by the WooCommerce MCP server because it provides a
+small, standard integration surface without exposing store credentials to
+clients.
+
+For production, replace local images with registry images, use a durable
+storage class, configure DNS and TLS for the Ingress hosts, inject secrets
+from a secret manager, and run the same Helm chart with production values.
+
+## Threat model
+
+- **Shared upstream credentials:** members can call enabled tools through the
+  gateway but cannot read or export the WooCommerce credential. The credential
+  is stored in a Kubernetes/Compose secret and used only by the server-side
+  WooCommerce MCP process. A compromised upstream or administrator still
+  requires separate operational controls and secret rotation.
+- **Client-token forwarding:** external API keys authenticate users to the
+  gateway and are not forwarded to upstream servers. Upstream authentication
+  is selected by the gateway/server configuration, preventing an upstream
+  from receiving unrelated client credentials.
+- **Untrusted upstreams:** an upstream can return misleading tool
+  descriptions or tool output. Administrators must review upstream URLs before
+  enabling them. The model is instructed to treat tool output as data, not
+  instructions, and upstreams can be disabled or isolated when unhealthy.
+- **Member-to-member access:** API keys are hashed, revocable, and associated
+  with users. Members can use tools and create their own key, but
+  administrator-only upstream, key-listing, revocation, and audit-management
+  operations are protected by role checks.
+- **Network exposure:** MCP upstream Services are internal `ClusterIP`
+  Services and the NetworkPolicy permits their MCP ports only from gateway
+  pods. In production, Ingress, TLS, database access, and Kubernetes RBAC
+  still require cluster-level hardening.
 
 ## Design and security notes
 
