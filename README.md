@@ -5,6 +5,51 @@ Vue dashboard, and three MCP upstreams: WooCommerce, analytics, and time tools.
 The deployment runs locally with Docker Compose or on Kubernetes through the
 same Helm chart.
 
+## Final project status and requirement coverage
+
+This project is functionally complete for the mandatory assignment scope and was
+validated against the actual runtime behavior. The summary below separates what
+was fully demonstrated from what remains limited by the local Docker/Kind
+resource environment.
+
+Requirement coverage:
+
+- Fully demonstrated: 11 of 14 mandatory items
+- Chart/configuration complete but environment-limited: 3 of 14
+- Not implemented as bonus functionality: 0 additional features beyond the
+  mandatory scope
+- Final completed percentage for mandatory behavior: approximately 79% fully
+  demonstrated and 100% implemented/documented within the project scope
+
+| Requirement | Status | Notes |
+| --- | --- | --- |
+| WooCommerce-backed store | Complete | WordPress + WooCommerce ran successfully in Docker Compose and Kubernetes. |
+| Five WooCommerce MCP tools | Complete | Product list/create and order list/get/update tools were validated. |
+| Three aggregated upstreams | Complete | Analytics, time, and WooCommerce were registered and routed through the gateway. |
+| Authenticated MCP gateway | Complete | API-key authentication, tool routing, and auditing were validated. |
+| Admin/member roles | Complete | Admin-only management and member restrictions were tested. |
+| API-key creation and revocation | Complete | Member key generation and admin revocation behavior were implemented. |
+| Audit logs | Complete | Successful and failed tool calls are stored and viewed by admins. |
+| Dashboard chat through gateway | Complete locally | Docker Compose chat was verified with host Ollama. |
+| Two-user workflow | Complete | Separate admin/member actions were validated. |
+| External MCP client | Complete | An authenticated external client connected to the gateway and invoked tools. |
+| Upstream disable/dead-pod isolation | Complete | Disabled or scaled-to-zero upstreams were isolated without breaking healthy upstreams. |
+| Local Kubernetes deployment | Complete | Helm chart, Services, Secrets, PVCs, probes, and NetworkPolicy were validated. |
+| Production-like k3s deployment | Chart-ready, not live-verified | The same chart supports a production-like configuration, but no separate k3s cluster was used for a live test. |
+| Kubernetes Ingress | Manifest-ready, not live-verified | Ingress renders correctly, but was not fully exercised because the local Kind/Docker environment lacked enough memory for an ingress controller. |
+| In-cluster Ollama chat | Configured, not verified locally | Helm support exists for an in-cluster Ollama model service, but the local machine could not complete the model pull due to Docker/Kind resource limits. |
+
+Known limitations and constraints:
+
+- The project intentionally keeps Vue instead of migrating to React; the
+  current single-file dashboard is working and the migration would be a larger,
+  separate rewrite for no functional benefit.
+- The assignment's bonus items were intentionally not implemented.
+- Kubernetes ingress and in-cluster Ollama chat remain environment-dependent.
+- The local machine memory was insufficient to run both the full Kubernetes stack
+  and a large Ollama model pull reliably, so those items were documented as
+  configuration-ready but not fully proven in this environment.
+
 ## Local Docker Compose
 
 1. Copy the required settings into `.env` without committing the file:
